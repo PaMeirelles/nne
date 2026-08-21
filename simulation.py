@@ -1,36 +1,19 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional
-from collections.abc import Callable
 
 from mechanics import resolve_players_move, _spawn_bullet, _advance_bullet
 from physics import Physics
-from protocol import GameStart, BulletCreated, BulletHitPlayer, EventRecord, ActionRecord
-from state import (
-    Coord,
-    Direction,
-    State,
+from protocol import (
+    ActionRecord,
+    BulletCreated,
+    BulletHitPlayer,
+    DecisionMaker,
+    EventRecord,
+    GameStart,
+    GameState,
 )
-
-
-class GameState(Enum):
-    ONGOING = 0
-    P1 = 1
-    P2 = 2
-    TIMEOUT = 3
-    SIMUL_KILLED = 4
-
-
-@dataclass(frozen=True, slots=True)
-class Action:
-    move: Optional[Direction] = None
-    shoot: bool = False
-
-
-type DecisionMaker = Callable[[State], Action]
+from state import Coord, State
 
 
 class Simulation:

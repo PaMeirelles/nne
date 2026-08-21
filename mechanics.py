@@ -4,8 +4,7 @@ import math
 from typing import Optional
 
 from physics import Physics, PLAYER_RADIUS, PLAYER_DIAMETER
-from protocol import BulletHitPlayer, BulletHitWall
-from simulation import Action
+from protocol import Action, BulletHitPlayer, BulletHitWall, Event
 from state import Direction, Coord, State, Bullet
 
 
@@ -80,12 +79,15 @@ def resolve_players_move(
     targets: list[Coord] = []
 
     for player, action in zip(state.players, actions):
-        if action.move is None:
+        if action.face is not None:
+            player.facing = action.face
+
+        if not action.move:
             targets.append(Coord(player.coord.x, player.coord.y))
             continue
 
-        player.facing = action.move
-        dx, dy = _direction_vector(action.move)
+        player.facing = action.face
+        dx, dy = _direction_vector(action.face)
         targets.append(
             _clamp_player(
                 Coord(
