@@ -86,8 +86,7 @@ def resolve_players_move(
             targets.append(Coord(player.coord.x, player.coord.y))
             continue
 
-        player.facing = action.face
-        dx, dy = _direction_vector(action.face)
+        dx, dy = _direction_vector(player.facing)
         targets.append(
             _clamp_player(
                 Coord(
