@@ -1,7 +1,8 @@
 import unittest
 
 from physics import Physics
-from simulation import Action, BulletCreated, BulletHitPlayer, GameState, Simulation
+from simulation import Action, GameState, Simulation
+from protocol import BulletCreated, BulletHitPlayer
 from state import Coord, Direction, PlayerStartingState, State
 
 
