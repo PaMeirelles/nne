@@ -1,124 +1,206 @@
 import unittest
 
-from physics import Physics
-from simulation import GameState, Simulation
-from protocol import BulletCreated, BulletHitPlayer, Action
-from state import Coord, Direction, PlayerStartingState, State
+from physics import PLAYER_DIAMETER, Physics
+from policies import minimum_movement_shooter
+from protocol import (
+    Action,
+    BulletCreated,
+    BulletHitPlayer,
+    BulletHitWall,
+    GameStart,
+    GameState,
+)
+from simulation import Simulation
+from state import Bullet, Coord, Direction, State, distance
+
+
+def make_physics(
+    board_x=5,
+    board_y=1,
+    *,
+    player_speed=0.25,
+    bullet_size=0.2,
+    bullet_speed_ratio=4,
+    match_duration=20,
+):
+    return Physics(
+        board_x,
+        board_y,
+        player_speed,
+        bullet_size,
+        bullet_speed_ratio,
+        match_duration,
+    )
 
 
 def make_state(physics, p1=(1.0, 0.5), p2=(4.0, 0.5)):
-    return State(
-        physics,
-        (
-            PlayerStartingState(Coord(*p1), Direction.EAST),
-            PlayerStartingState(Coord(*p2), Direction.WEST),
-        ),
-    )
+    return State(physics, (Coord(*p1), Coord(*p2)))
+
+
+def idle(_):
+    return Action()
 
 
 class SimulationTests(unittest.TestCase):
     def test_stationary_shooter_eventually_kills_target(self):
-        physics = Physics(5, 1, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=20)
-        state = make_state(physics)
-        sim = Simulation(state, physics, (lambda _: Action(shoot=True), lambda _: Action()))
+        physics = make_physics()
+        sim = Simulation(
+            make_state(physics),
+            physics,
+            (lambda _: Action(shoot=Direction.EAST), idle),
+        )
 
         self.assertEqual(sim.run(), GameState.P1)
-        self.assertTrue(any(isinstance(record.event, BulletCreated) for record in sim.events))
-        self.assertTrue(any(isinstance(record.event, BulletHitPlayer) for record in sim.events))
+        self.assertTrue(any(isinstance(r.event, BulletCreated) for r in sim.events))
+        self.assertTrue(any(isinstance(r.event, BulletHitPlayer) for r in sim.events))
 
-    def test_simultaneous_shots_can_kill_both(self):
-        physics = Physics(3, 1, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=8, match_duration=10)
-        state = make_state(physics, p1=(0.75, 0.5), p2=(2.25, 0.5))
-        shoot = lambda _: Action(shoot=True)
-        sim = Simulation(state, physics, (shoot, shoot))
+    def test_simultaneous_opposing_shots_can_kill_both(self):
+        physics = make_physics(
+            board_x=3,
+            player_speed=0.25,
+            bullet_speed_ratio=8,
+            match_duration=10,
+        )
+        sim = Simulation(
+            make_state(physics, p1=(0.75, 0.5), p2=(2.25, 0.5)),
+            physics,
+            (
+                lambda _: Action(shoot=Direction.EAST),
+                lambda _: Action(shoot=Direction.WEST),
+            ),
+        )
 
         self.assertEqual(sim.run(), GameState.SIMUL_KILLED)
+        hits = [r.event for r in sim.events if isinstance(r.event, BulletHitPlayer)]
+        self.assertEqual({event.target for event in hits}, {0, 1})
 
-    def test_timeout(self):
-        physics = Physics(5, 1, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=3)
-        state = make_state(physics)
-        sim = Simulation(state, physics, (lambda _: Action(), lambda _: Action()))
+    def test_timeout_records_initial_state_and_each_tick(self):
+        physics = make_physics(match_duration=3)
+        sim = Simulation(make_state(physics), physics, (idle, idle))
 
         self.assertEqual(sim.run(), GameState.TIMEOUT)
         self.assertEqual(sim.tick_counter, 3)
-        self.assertEqual(len(sim.states), 4)  # initial + three ticks
+        self.assertEqual(len(sim.states), 4)
+        self.assertEqual(sim.events, [sim.events[0]])
+        self.assertIsInstance(sim.events[0].event, GameStart)
+        self.assertEqual(sim.events[0].tick, 0)
+        self.assertEqual([record.tick for record in sim.actions], [0, 1, 2])
 
-    def test_saved_states_are_snapshots(self):
-        physics = Physics(5, 1, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=3)
-        state = make_state(physics)
-        move = lambda _: Action(face=Direction.EAST, move=True)
-        sim = Simulation(state, physics, (move, lambda _: Action()))
+    def test_saved_states_are_independent_snapshots(self):
+        physics = make_physics(match_duration=3)
+        sim = Simulation(
+            make_state(physics),
+            physics,
+            (lambda _: Action(move=Direction.EAST), idle),
+        )
 
         initial_x = sim.states[0].players[0].coord.x
         sim.advance_tick()
+
         self.assertEqual(sim.states[0].players[0].coord.x, initial_x)
         self.assertGreater(sim.states[1].players[0].coord.x, initial_x)
+        self.assertIsNot(sim.states[0], sim.states[1])
 
-    def test_training_mode_does_not_record_replay(self):
-        physics = Physics(5, 1, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=3)
-        state = make_state(physics)
+    def test_training_mode_records_actions_but_not_replay(self):
+        physics = make_physics(match_duration=3)
         sim = Simulation(
-            state,
+            make_state(physics),
             physics,
-            (lambda _: Action(), lambda _: Action()),
+            (idle, idle),
             record_replay=False,
         )
 
         self.assertEqual(sim.run(), GameState.TIMEOUT)
         self.assertEqual(sim.states, [])
         self.assertEqual(sim.events, [])
+        self.assertEqual(len(sim.actions), 3)
 
-
-class PolicyTests(unittest.TestCase):
-    def test_minimum_movement_shooter_chooses_shorter_alignment_axis(self):
-        from policies import minimum_movement_shooter
-
-        physics = Physics(5, 5, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=50)
-        state = State(
+    def test_players_stop_at_first_contact(self):
+        physics = make_physics(board_x=4, player_speed=1, match_duration=2)
+        sim = Simulation(
+            make_state(physics, p1=(1.0, 0.5), p2=(3.0, 0.5)),
             physics,
             (
-                PlayerStartingState(Coord(1.0, 1.0), Direction.EAST),
-                PlayerStartingState(Coord(4.0, 3.0), Direction.WEST),
+                lambda _: Action(move=Direction.EAST),
+                lambda _: Action(move=Direction.WEST),
             ),
         )
-        policy = minimum_movement_shooter(0, physics)
 
-        self.assertEqual(policy(state), Action(face=Direction.NORTH, move=True))
+        sim.advance_tick()
 
-    def test_minimum_movement_shooter_turns_and_shoots_when_aligned(self):
-        from policies import minimum_movement_shooter
+        self.assertAlmostEqual(
+            distance(sim.current_state.players[0].coord, sim.current_state.players[1].coord),
+            PLAYER_DIAMETER,
+        )
+        self.assertLess(sim.current_state.players[0].coord.x, sim.current_state.players[1].coord.x)
 
-        physics = Physics(5, 5, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=50)
-        state = State(
+    def test_player_movement_is_clamped_to_board(self):
+        physics = make_physics(player_speed=2, match_duration=2)
+        sim = Simulation(
+            make_state(physics, p1=(0.5, 0.5), p2=(4.0, 0.5)),
             physics,
-            (
-                PlayerStartingState(Coord(1.0, 1.0), Direction.NORTH),
-                PlayerStartingState(Coord(4.0, 1.0), Direction.WEST),
-            ),
+            (lambda _: Action(move=Direction.WEST), idle),
         )
-        policy = minimum_movement_shooter(0, physics)
 
-        self.assertEqual(policy(state), Action(face=Direction.EAST, shoot=True))
+        sim.advance_tick()
+
+        self.assertEqual(sim.current_state.players[0].coord, Coord(0.5, 0.5))
+
+    def test_bullet_hitting_wall_is_removed_and_recorded(self):
+        physics = make_physics(match_duration=5)
+        state = make_state(physics)
+        state.players[0].bullet = Bullet(Coord(4.8, 0.5), Direction.EAST)
+        sim = Simulation(state, physics, (idle, idle))
+
+        sim.advance_tick()
+
+        self.assertIsNone(sim.current_state.players[0].bullet)
+        wall_hits = [r for r in sim.events if isinstance(r.event, BulletHitWall)]
+        self.assertEqual(len(wall_hits), 1)
+        self.assertEqual(wall_hits[0].tick, 1)
+        self.assertAlmostEqual(wall_hits[0].event.coord.x, 4.9)
+
+    def test_player_cannot_shoot_while_their_bullet_is_active(self):
+        physics = make_physics(bullet_speed_ratio=1, match_duration=5)
+        sim = Simulation(
+            make_state(physics),
+            physics,
+            (lambda _: Action(shoot=Direction.EAST), idle),
+        )
+
+        sim.advance_tick()
+        sim.advance_tick()
+
+        created = [r for r in sim.events if isinstance(r.event, BulletCreated)]
+        self.assertEqual(len(created), 1)
+
+    def test_advance_tick_after_game_end_has_no_effect(self):
+        physics = make_physics(board_x=2, bullet_speed_ratio=8, match_duration=5)
+        sim = Simulation(
+            make_state(physics, p1=(0.5, 0.5), p2=(1.5, 0.5)),
+            physics,
+            (lambda _: Action(shoot=Direction.EAST), idle),
+        )
+        self.assertEqual(sim.advance_tick(), GameState.P1)
+        snapshot = (sim.tick_counter, len(sim.states), len(sim.events), len(sim.actions))
+
+        self.assertEqual(sim.advance_tick(), GameState.P1)
+        self.assertEqual(
+            (sim.tick_counter, len(sim.states), len(sim.events), len(sim.actions)),
+            snapshot,
+        )
 
     def test_minimum_movement_shooter_kills_stationary_target(self):
-        from policies import minimum_movement_shooter
-
-        physics = Physics(5, 5, player_speed=0.25, bullet_size=0.2, bullet_speed_ratio=4, match_duration=50)
-        state = State(
-            physics,
-            (
-                PlayerStartingState(Coord(1.0, 1.0), Direction.EAST),
-                PlayerStartingState(Coord(4.0, 3.0), Direction.WEST),
-            ),
-        )
+        physics = make_physics(board_y=5, match_duration=50)
+        state = make_state(physics, p1=(1.0, 1.0), p2=(4.0, 3.0))
         sim = Simulation(
             state,
             physics,
-            (minimum_movement_shooter(0, physics), lambda _: Action()),
+            (minimum_movement_shooter(0, physics), idle),
         )
 
         self.assertEqual(sim.run(), GameState.P1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

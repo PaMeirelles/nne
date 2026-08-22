@@ -18,9 +18,8 @@ class GameState(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Action:
-    move: bool = False
-    face: Optional[Direction] = None
-    shoot: bool = False
+    move: Optional[Direction] = None
+    shoot: Optional[Direction] = None
 
 
 type DecisionMaker = Callable[[State], Action]

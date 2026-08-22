@@ -24,11 +24,11 @@ def minimum_movement_shooter(player_index: int, physics: Physics) -> DecisionMak
 
         if abs(dy) <= hit_radius:
             facing = _towards(dx, Direction.WEST, Direction.EAST)
-            return Action(face=facing, shoot=True)
+            return Action(shoot=facing)
 
         if abs(dx) <= hit_radius:
             facing = _towards(dy, Direction.SOUTH, Direction.NORTH)
-            return Action(face=facing, shoot=True)
+            return Action(shoot=facing)
 
         vertical_displacement = abs(dx) - hit_radius   # move E/W to shoot N/S
         horizontal_displacement = abs(dy) - hit_radius  # move N/S to shoot E/W
@@ -38,6 +38,6 @@ def minimum_movement_shooter(player_index: int, physics: Physics) -> DecisionMak
         else:
             facing = _towards(dy, Direction.SOUTH, Direction.NORTH)
 
-        return Action(face=facing, shoot=False, move=True)
+        return Action(move=facing)
 
     return decide

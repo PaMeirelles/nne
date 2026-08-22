@@ -56,8 +56,8 @@ class Simulation:
         bullet_radius = self.physics.bullet_size / 2
         for owner, action in enumerate(actions):
             player = new_state.players[owner]
-            if action.shoot and player.bullet is None:
-                player.bullet = _spawn_bullet(player_paths[owner][0], player.facing, bullet_radius)
+            if action.shoot is not None and player.bullet is None:
+                player.bullet = _spawn_bullet(player_paths[owner][0], action.shoot, bullet_radius)
                 if self.record_replay:
                     self.events.append(
                         EventRecord(

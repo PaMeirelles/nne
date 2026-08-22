@@ -28,14 +28,8 @@ class Bullet:
 @dataclass
 class Player:
     coord: Coord
-    facing: Direction
     bullet: Optional[Bullet]
 
-
-@dataclass
-class PlayerStartingState:
-    coord: Coord
-    facing: Direction
 
 
 def distance(coord1: Coord, coord2: Coord) -> float:
@@ -47,22 +41,22 @@ def player_intercept(p1_coord: Coord, p2_coord: Coord) -> bool:
 
 
 class State:
-    def __init__(self, physics: Physics, players: tuple[PlayerStartingState, PlayerStartingState]):
-        for player in players:
+    def __init__(self, physics: Physics, starting_pos: tuple[Coord, Coord]):
+        for coord in starting_pos:
             if (
-                player.coord.x < PLAYER_RADIUS
-                or player.coord.y < PLAYER_RADIUS
-                or player.coord.x > physics.board_x - PLAYER_RADIUS
-                or player.coord.y > physics.board_y - PLAYER_RADIUS
+                coord.x < PLAYER_RADIUS
+                or coord.y < PLAYER_RADIUS
+                or coord.x > physics.board_x - PLAYER_RADIUS
+                or coord.y > physics.board_y - PLAYER_RADIUS
             ):
                 raise ValueError("Invalid starting state: player outside board")
 
-        if player_intercept(players[0].coord, players[1].coord):
+        if player_intercept(starting_pos[0], starting_pos[1]):
             raise ValueError("Invalid starting state: players overlap")
 
         self.players = [
-            Player(Coord(p.coord.x, p.coord.y), p.facing, None)
-            for p in players
+            Player(Coord(coord.x, coord.y), None)
+            for coord in starting_pos
         ]
 
     @property

@@ -18,8 +18,6 @@ def _direction_vector(direction: Direction) -> tuple[float, float]:
             return -1.0, 0.0
         case Direction.EAST:
             return 1.0, 0.0
-    raise ValueError(f"Unknown direction: {direction}")
-
 
 def _clamp_player(coord: Coord, physics: Physics) -> Coord:
     return Coord(
@@ -69,24 +67,15 @@ def _first_circle_contact_time(
 def resolve_players_move(
     state: State, actions: tuple[Action, Action], physics: Physics
 ) -> tuple[tuple[Coord, Coord], tuple[Coord, Coord]]:
-    """Resolve both players' movement simultaneously.
-
-    Movement changes facing immediately. Players move at most ``player_speed`` per tick,
-    are clamped to the board, and cannot pass through one another. The returned pairs are
-    each player's start/end coordinates for this tick.
-    """
     starts = [Coord(player.coord.x, player.coord.y) for player in state.players]
     targets: list[Coord] = []
 
     for player, action in zip(state.players, actions):
-        if action.face is not None:
-            player.facing = action.face
-
         if not action.move:
             targets.append(Coord(player.coord.x, player.coord.y))
             continue
 
-        dx, dy = _direction_vector(player.facing)
+        dx, dy = _direction_vector(action.move)
         targets.append(
             _clamp_player(
                 Coord(
