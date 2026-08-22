@@ -62,3 +62,9 @@ class EventRecord:
 class ActionRecord:
     tick: int
     actions: tuple[Action, Action]
+
+@dataclass(frozen=True, slots=True)
+class ReplayInfo:
+    states: list[State]
+    action_records: list[ActionRecord]
+    events: list[EventRecord]
