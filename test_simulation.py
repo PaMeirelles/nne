@@ -1,5 +1,12 @@
 import unittest
 
+from neat_training import (
+    OUTPUT_ACTIONS,
+    TrainingArena,
+    encode_state,
+    network_policy,
+    train,
+)
 from physics import PLAYER_DIAMETER, Physics
 from policies import minimum_movement_shooter
 from protocol import (
@@ -200,6 +207,34 @@ class SimulationTests(unittest.TestCase):
         )
 
         self.assertEqual(sim.run(), GameState.P1)
+
+    def test_neat_observation_and_output_mapping_can_hit_stationary_target(self):
+        arena = TrainingArena.stationary_target()
+        state = arena.state(0)
+
+        self.assertEqual(encode_state(state, arena.physics), (0.35, 0.0, -0.7, 0.0, -1.0))
+        self.assertEqual(OUTPUT_ACTIONS[8], Action(shoot=Direction.EAST))
+
+        class ShootEastNetwork:
+            @staticmethod
+            def activate(_):
+                return [0.0] * 8 + [1.0]
+
+        sim = Simulation(
+            state,
+            arena.physics,
+            (network_policy(ShootEastNetwork(), arena.physics), idle),
+        )
+        self.assertEqual(sim.run(), GameState.P1)
+
+    def test_neat_training_improves_fitness(self):
+        winner, config, statistics, evaluator = train(
+            generations=10, seed=7, verbose=False
+        )
+        best_by_generation = statistics.get_fitness_stat(max)
+
+        self.assertGreater(best_by_generation[-1], best_by_generation[0])
+        self.assertGreaterEqual(evaluator.evaluate_genome(winner, config), 103.0)
 
 
 if __name__ == "__main__":
